@@ -1,0 +1,34 @@
+# Environment & secrets
+app/.env
+*.env
+
+# Database
+app/*.db
+*.db
+
+# Uploaded files (contain real transaction data)
+app/uploads/
+uploads/
+
+# CSV files anywhere in the project
+*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log

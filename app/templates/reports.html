@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="mb-0">Reports</h4>
+  <a href="/export/transactions.csv" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-download"></i> Export All Transactions
+  </a>
+</div>
+
+{% if not summaries %}
+<p class="text-muted">No data yet. Upload a CSV to get started.</p>
+{% else %}
+
+<!-- Monthly Income vs Expenses Bar Chart -->
+<div class="card p-3 mb-4">
+  <h6 class="text-muted mb-3">Monthly Income vs Expenses</h6>
+  <canvas id="monthlyChart" height="100"></canvas>
+</div>
+
+<!-- Monthly Summary Table -->
+<div class="card p-3 mb-4">
+  <h6 class="text-muted mb-3">Monthly Summary</h6>
+  <table class="table table-sm table-hover mb-0">
+    <thead class="table-light">
+      <tr>
+        <th>Month</th>
+        <th class="text-end">Income</th>
+        <th class="text-end">Expenses</th>
+        <th class="text-end">Net</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for s in summaries | reverse %}
+    <tr>
+      <td>{{ s.label }}</td>
+      <td class="text-end income-color">${{ "{:,.2f}".format(s.income) }}</td>
+      <td class="text-end expense-color">${{ "{:,.2f}".format(s.expenses) }}</td>
+      <td class="text-end fw-semibold {{ 'net-positive' if s.net >= 0 else 'net-negative' }}">
+        {{ '+' if s.net >= 0 else '' }}${{ "{:,.2f}".format(s.net) }}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+    <tfoot class="table-light fw-semibold">
+      <tr>
+        <td>Total</td>
+        <td class="text-end income-color">${{ "{:,.2f}".format(summaries | sum(attribute='income')) }}</td>
+        <td class="text-end expense-color">${{ "{:,.2f}".format(summaries | sum(attribute='expenses')) }}</td>
+        {% set total_net = (summaries | sum(attribute='income')) - (summaries | sum(attribute='expenses')) %}
+        <td class="text-end {{ 'net-positive' if total_net >= 0 else 'net-negative' }}">
+          {{ '+' if total_net >= 0 else '' }}${{ "{:,.2f}".format(total_net) }}
+        </td>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+
+<!-- Category Breakdown (Horizontal Bar) -->
+{% if categories %}
+<div class="card p-3 mb-4">
+  <h6 class="text-muted mb-3">Spending by Category (All Time)</h6>
+  <canvas id="categoryChart" height="120"></canvas>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if summaries %}
+<script>
+// Monthly bar chart
+const monthLabels = {{ summaries | map(attribute='label') | list | tojson }};
+const incomeData  = {{ summaries | map(attribute='income')   | list | tojson }};
+const expenseData = {{ summaries | map(attribute='expenses') | list | tojson }};
+
+new Chart(document.getElementById('monthlyChart'), {
+  type: 'bar',
+  data: {
+    labels: monthLabels,
+    datasets: [
+      { label: 'Income',   data: incomeData,  backgroundColor: '#19875488' },
+      { label: 'Expenses', data: expenseData, backgroundColor: '#dc354588' },
+    ]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { position: 'top' } },
+    scales: { y: { beginAtZero: true } }
+  }
+});
+</script>
+
+{% if categories %}
+<script>
+// Horizontal category bar
+const catLabels = {{ categories | map(attribute='category') | list | tojson }};
+const catData   = {{ categories | map(attribute='amount')   | list | tojson }};
+
+new Chart(document.getElementById('categoryChart'), {
+  type: 'bar',
+  data: {
+    labels: catLabels,
+    datasets: [{ label: 'Spent', data: catData, backgroundColor: '#0d6efd88' }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: { x: { beginAtZero: true } }
+  }
+});
+</script>
+{% endif %}
+{% endif %}
+{% endblock %}
