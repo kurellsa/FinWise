@@ -4,6 +4,7 @@ A transaction is considered recurring if the same normalized description
 appears in at least 2 of the last 3 calendar months.
 """
 from collections import defaultdict
+from datetime import date
 from sqlalchemy.orm import Session
 from sqlalchemy import extract, func
 from models import Transaction
@@ -43,7 +44,7 @@ def detect_recurring(db: Session) -> list[dict]:
         db.query(Transaction)
         .filter(
             Transaction.amount < 0,
-            Transaction.date >= f"{months[-1][0]}-{months[-1][1]:02d}-01",
+            Transaction.date >= date(months[-1][0], months[-1][1], 1),
         )
         .all()
     )
