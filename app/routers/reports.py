@@ -3,18 +3,18 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract, case
-from collections import defaultdict
 import csv
 import io
 
 from database import get_db
 from models import Transaction
+from auth import require_auth
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 
-def _monthly_summaries(db: Session) -> list[dict]:
+def _monthly_summaries(db: Session, user_id: int) -> list[dict]:
     rows = (
         db.query(
             extract("year", Transaction.date).label("year"),
@@ -26,6 +26,7 @@ def _monthly_summaries(db: Session) -> list[dict]:
                 case((Transaction.amount < 0, Transaction.amount), else_=0)
             ).label("expenses"),
         )
+        .filter(Transaction.user_id == user_id)
         .group_by("year", "month")
         .order_by("year", "month")
         .all()
@@ -49,10 +50,10 @@ def _monthly_summaries(db: Session) -> list[dict]:
     return summaries
 
 
-def _category_totals(db: Session) -> list[dict]:
+def _category_totals(db: Session, user_id: int) -> list[dict]:
     rows = (
         db.query(Transaction.category, func.sum(Transaction.amount).label("total"))
-        .filter(Transaction.amount < 0)
+        .filter(Transaction.user_id == user_id, Transaction.amount < 0)
         .group_by(Transaction.category)
         .order_by(func.sum(Transaction.amount))   # most negative first
         .all()
@@ -62,26 +63,31 @@ def _category_totals(db: Session) -> list[dict]:
 
 @router.get("/reports", response_class=HTMLResponse)
 def reports_page(request: Request, db: Session = Depends(get_db)):
-    summaries = _monthly_summaries(db)
-    categories = _category_totals(db)
+    user_id, username = require_auth(request)
+    summaries = _monthly_summaries(db, user_id)
+    categories = _category_totals(db, user_id)
     return templates.TemplateResponse(
+        request,
         "reports.html",
-        {
-            "request": request,
-            "summaries": summaries,
-            "categories": categories,
-        },
+        {"summaries": summaries, "categories": categories, "username": username},
     )
 
 
 @router.get("/export/transactions.csv")
-def export_all(db: Session = Depends(get_db)):
-    txns = db.query(Transaction).order_by(Transaction.date.desc()).all()
+def export_all(request: Request, db: Session = Depends(get_db)):
+    user_id, username = require_auth(request)
+    txns = (
+        db.query(Transaction)
+        .filter(Transaction.user_id == user_id)
+        .order_by(Transaction.date.desc())
+        .all()
+    )
     return _csv_response(txns, "transactions_all.csv")
 
 
 @router.get("/export/filtered.csv")
 def export_filtered(
+    request: Request,
     account: str = "",
     category: str = "",
     search: str = "",
@@ -90,7 +96,8 @@ def export_filtered(
     db: Session = Depends(get_db),
 ):
     from datetime import date as date_type
-    query = db.query(Transaction)
+    user_id, username = require_auth(request)
+    query = db.query(Transaction).filter(Transaction.user_id == user_id)
     if account:
         query = query.filter(Transaction.account == account)
     if category:

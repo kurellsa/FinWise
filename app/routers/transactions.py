@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from database import get_db
 from models import Transaction
+from auth import require_auth
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -20,7 +21,9 @@ def transactions_page(
     date_to: str = Query(default=""),
     db: Session = Depends(get_db),
 ):
-    query = db.query(Transaction)
+    user_id, username = require_auth(request)
+
+    query = db.query(Transaction).filter(Transaction.user_id == user_id)
     if account:
         query = query.filter(Transaction.account == account)
     if category:
@@ -36,8 +39,21 @@ def transactions_page(
     total_shown = len(txns)
     total_amount = sum(t.amount for t in txns)
 
-    accounts = [r[0] for r in db.query(Transaction.account).distinct().all()]
-    categories = [r[0] for r in db.query(Transaction.category).distinct().order_by(Transaction.category).all()]
+    accounts = [
+        r[0] for r in
+        db.query(Transaction.account)
+        .filter(Transaction.user_id == user_id)
+        .distinct()
+        .all()
+    ]
+    categories = [
+        r[0] for r in
+        db.query(Transaction.category)
+        .filter(Transaction.user_id == user_id)
+        .distinct()
+        .order_by(Transaction.category)
+        .all()
+    ]
 
     # Build export URL with same filters
     params = "&".join(
@@ -48,9 +64,9 @@ def transactions_page(
     export_url = f"/export/filtered.csv?{params}" if params else "/export/transactions.csv"
 
     return templates.TemplateResponse(
+        request,
         "transactions.html",
         {
-            "request": request,
             "transactions": txns,
             "accounts": accounts,
             "categories": categories,
@@ -62,5 +78,6 @@ def transactions_page(
             "total_shown": total_shown,
             "total_amount": round(total_amount, 2),
             "export_url": export_url,
+            "username": username,
         },
     )

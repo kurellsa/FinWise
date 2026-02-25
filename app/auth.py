@@ -1,12 +1,13 @@
 """
-Single-user auth using a signed session cookie.
-Credentials live in .env — never hardcoded.
+Multi-user auth using a signed session cookie.
+Cookie payload: {"id": user_id, "un": username}
+No DB lookup needed per request to get username for navbar.
 """
 import os
+from typing import Optional
 import bcrypt
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from fastapi import Request, HTTPException
-from fastapi.responses import RedirectResponse
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -25,8 +26,8 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
-def create_session_cookie(response, username: str):
-    token = _serializer.dumps(username)
+def create_session_cookie(response, user_id: int, username: str) -> None:
+    token = _serializer.dumps({"id": user_id, "un": username})
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
@@ -36,18 +37,21 @@ def create_session_cookie(response, username: str):
     )
 
 
-def get_current_user(request: Request) -> str:
+def get_current_user(request: Request) -> Optional[tuple[int, str]]:
+    """Returns (user_id, username) from the session cookie, or None."""
     token = request.cookies.get(COOKIE_NAME)
     if not token:
         return None
     try:
-        return _serializer.loads(token, max_age=SESSION_MAX_AGE)
-    except (BadSignature, SignatureExpired):
+        payload = _serializer.loads(token, max_age=SESSION_MAX_AGE)
+        return (payload["id"], payload["un"])
+    except (BadSignature, SignatureExpired, KeyError):
         return None
 
 
-def require_auth(request: Request) -> str:
-    user = get_current_user(request)
-    if not user:
+def require_auth(request: Request) -> tuple[int, str]:
+    """Returns (user_id, username) or raises 302 to /login."""
+    session = get_current_user(request)
+    if not session:
         raise HTTPException(status_code=302, headers={"Location": "/login"})
-    return user
+    return session

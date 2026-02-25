@@ -7,6 +7,7 @@ from database import get_db
 from models import Transaction
 from services.csv_parser import parse_csv
 from services.categorizer import categorize
+from auth import require_auth
 
 router = APIRouter()
 UPLOAD_DIR = "uploads"
@@ -20,6 +21,8 @@ async def upload_csv(
     account: str = Form(...),
     db: Session = Depends(get_db),
 ):
+    user_id, username = require_auth(request)
+
     filepath = os.path.join(UPLOAD_DIR, file.filename)
     with open(filepath, "wb") as f:
         shutil.copyfileobj(file.file, f)
@@ -31,10 +34,11 @@ async def upload_csv(
     inserted = 0
     skipped = 0
     for row in rows:
-        # Deduplicate: same account + date + description + amount
+        # Deduplicate: same user + account + date + description + amount
         exists = (
             db.query(Transaction)
             .filter(
+                Transaction.user_id == user_id,
                 Transaction.account == row["account"],
                 Transaction.date == row["date"],
                 Transaction.description == row["description"],
@@ -50,6 +54,7 @@ async def upload_csv(
         if row.get("category") in (None, "", "Uncategorized"):
             row["category"] = categorize(row["description"])
 
+        row["user_id"] = user_id
         db.add(Transaction(**row))
         inserted += 1
 

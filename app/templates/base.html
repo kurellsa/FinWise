@@ -59,12 +59,18 @@
         </svg>
         FinWise
       </a>
-      <div class="d-flex gap-3">
+      <div class="d-flex align-items-center gap-3">
         <a href="/" class="nav-link text-white">Dashboard</a>
         <a href="/transactions" class="nav-link text-white">Transactions</a>
         <a href="/reports" class="nav-link text-white"><i class="bi bi-bar-chart-line"></i> Reports</a>
         <a href="/chat" class="nav-link text-white"><i class="bi bi-chat-dots"></i> AI Advisor</a>
         <a href="/settings" class="nav-link text-white"><i class="bi bi-sliders"></i> Settings</a>
+        {% if username %}
+        <span class="text-white-50 small border-start border-secondary ps-3">
+          <i class="bi bi-person-circle"></i> {{ username }}
+        </span>
+        <a href="/logout" class="btn btn-sm btn-outline-light py-0 px-2">Sign out</a>
+        {% endif %}
       </div>
     </div>
   </nav>

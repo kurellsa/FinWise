@@ -10,19 +10,23 @@ from models import Transaction, UserProfile
 from services.recurring import detect_recurring
 
 
-def _get_profile(db: Session) -> UserProfile:
-    profile = db.get(UserProfile, 1)
+def _get_profile(db: Session, user_id: int) -> UserProfile:
+    profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
     if profile is None:
-        profile = UserProfile(id=1)
+        profile = UserProfile(user_id=user_id)
         db.add(profile)
         db.commit()
         db.refresh(profile)
     return profile
 
 
-def build_snapshot(db: Session) -> dict:
+def build_snapshot(db: Session, user_id: int) -> dict:
     # Use the most recent month present in the data, not today's date.
-    latest = db.query(func.max(Transaction.date)).scalar()
+    latest = (
+        db.query(func.max(Transaction.date))
+        .filter(Transaction.user_id == user_id)
+        .scalar()
+    )
     if latest is None:
         return {"error": "No transactions loaded yet.", "total_transactions_loaded": 0}
 
@@ -33,6 +37,7 @@ def build_snapshot(db: Session) -> dict:
     month_txns = (
         db.query(Transaction)
         .filter(
+            Transaction.user_id == user_id,
             extract("month", Transaction.date) == ref_month,
             extract("year", Transaction.date) == ref_year,
         )
@@ -49,7 +54,7 @@ def build_snapshot(db: Session) -> dict:
             category_totals[t.category] = category_totals.get(t.category, 0) + abs(t.amount)
 
     # All-time spending by category
-    all_txns = db.query(Transaction).all()
+    all_txns = db.query(Transaction).filter(Transaction.user_id == user_id).all()
     all_category_totals: dict[str, float] = {}
     for t in all_txns:
         if t.amount < 0:
@@ -57,19 +62,33 @@ def build_snapshot(db: Session) -> dict:
 
     # Balance per account (sum of all time)
     account_balances: dict[str, float] = {}
-    rows = db.query(Transaction.account, func.sum(Transaction.amount)).group_by(Transaction.account).all()
+    rows = (
+        db.query(Transaction.account, func.sum(Transaction.amount))
+        .filter(Transaction.user_id == user_id)
+        .group_by(Transaction.account)
+        .all()
+    )
     for i, (acct, total) in enumerate(rows):
         label = f"Account-{chr(65 + i)}"
         account_balances[label] = round(total, 2)
     total_balance = round(sum(account_balances.values()), 2)
 
     # Date range + totals
-    earliest = db.query(func.min(Transaction.date)).scalar()
-    total_txns = db.query(func.count(Transaction.id)).scalar()
+    earliest = (
+        db.query(func.min(Transaction.date))
+        .filter(Transaction.user_id == user_id)
+        .scalar()
+    )
+    total_txns = (
+        db.query(func.count(Transaction.id))
+        .filter(Transaction.user_id == user_id)
+        .scalar()
+    )
 
     # Individual transactions for AI reference (sorted by date desc, capped at 100)
     recent_txns = (
         db.query(Transaction)
+        .filter(Transaction.user_id == user_id)
         .order_by(Transaction.date.desc())
         .limit(100)
         .all()
@@ -85,19 +104,18 @@ def build_snapshot(db: Session) -> dict:
     ]
 
     # --- Phase 2: Recurring payments ---
-    recurring = detect_recurring(db)
+    recurring = detect_recurring(db, user_id)
     recurring_monthly_total = round(sum(r["estimated_monthly"] for r in recurring), 2)
     recurring_descs = {r["description"] for r in recurring}
 
     # --- Phase 2: User profile settings ---
-    profile = _get_profile(db)
+    profile = _get_profile(db, user_id)
     emergency_fund_target = profile.emergency_fund_target
     monthly_buffer = profile.monthly_buffer
     alert_threshold = profile.alert_threshold
     debts = json.loads(profile.outstanding_debts or "[]")
 
     # --- Phase 2: Safe to spend ---
-    # Estimate how much of recurring has already been paid this month
     spent_recurring_this_month = sum(
         abs(t.amount) for t in month_txns
         if t.amount < 0 and any(rd in t.description.upper() for rd in recurring_descs)
@@ -108,7 +126,7 @@ def build_snapshot(db: Session) -> dict:
     )
 
     # --- Phase 2: Monthly surplus ---
-    monthly_surplus = round(month_income + month_expenses, 2)   # net of latest month
+    monthly_surplus = round(month_income + month_expenses, 2)
 
     # --- Phase 2: Large adhoc purchase alerts (last 14 days of data) ---
     alert_cutoff = latest - timedelta(days=14)
@@ -119,7 +137,7 @@ def build_snapshot(db: Session) -> dict:
         if t.amount >= -alert_threshold:
             continue
         if any(rd in t.description.upper() for rd in recurring_descs):
-            continue   # known recurring — skip
+            continue
         alerts.append({
             "date": str(t.date),
             "description": t.description,

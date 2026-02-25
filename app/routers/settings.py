@@ -12,10 +12,10 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 
-def get_or_create_profile(db: Session) -> UserProfile:
-    profile = db.get(UserProfile, 1)
+def _get_or_create_profile(db: Session, user_id: int) -> UserProfile:
+    profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
     if profile is None:
-        profile = UserProfile(id=1)
+        profile = UserProfile(user_id=user_id)
         db.add(profile)
         db.commit()
         db.refresh(profile)
@@ -24,12 +24,13 @@ def get_or_create_profile(db: Session) -> UserProfile:
 
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, db: Session = Depends(get_db)):
-    require_auth(request)
-    profile = get_or_create_profile(db)
+    user_id, username = require_auth(request)
+    profile = _get_or_create_profile(db, user_id)
     debts = json.loads(profile.outstanding_debts or "[]")
     return templates.TemplateResponse(
+        request,
         "settings.html",
-        {"request": request, "profile": profile, "debts": debts},
+        {"profile": profile, "debts": debts, "username": username},
     )
 
 
@@ -44,13 +45,12 @@ def settings_save(
     debt_rates: list[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
-    require_auth(request)
-    profile = get_or_create_profile(db)
+    user_id, username = require_auth(request)
+    profile = _get_or_create_profile(db, user_id)
     profile.alert_threshold = alert_threshold
     profile.emergency_fund_target = emergency_fund_target
     profile.monthly_buffer = monthly_buffer
 
-    # Build debts list from parallel form arrays
     debts = []
     for name, balance, rate in zip(debt_names, debt_balances, debt_rates):
         name = name.strip()

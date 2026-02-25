@@ -1,33 +1,38 @@
-import os
-from fastapi import APIRouter, Request, Form
+from fastapi import APIRouter, Depends, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from auth import verify_password, create_session_cookie, COOKIE_NAME
-from dotenv import load_dotenv
+from sqlalchemy.orm import Session
 
-load_dotenv()
+from database import get_db
+from models import User
+from auth import verify_password, create_session_cookie, COOKIE_NAME
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
-_USERNAME = os.environ["APP_USERNAME"]
-_PASSWORD_HASH = os.environ["APP_PASSWORD_HASH"]
-
 
 @router.get("/login", response_class=HTMLResponse)
-def login_page(request: Request, error: str = ""):
-    return templates.TemplateResponse("login.html", {"request": request, "error": error})
+def login_page(request: Request, registered: str = ""):
+    msg = "Account created. Please sign in." if registered else ""
+    return templates.TemplateResponse(request, "login.html", {"msg": msg, "error": ""})
 
 
 @router.post("/login")
-def login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
-    if username == _USERNAME and verify_password(password, _PASSWORD_HASH):
+def login_submit(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.username == username).first()
+    if user and verify_password(password, user.password_hash):
         response = RedirectResponse(url="/", status_code=303)
-        create_session_cookie(response, username)
+        create_session_cookie(response, user.id, user.username)
         return response
     return templates.TemplateResponse(
+        request,
         "login.html",
-        {"request": request, "error": "Invalid username or password."},
+        {"error": "Invalid username or password.", "msg": ""},
         status_code=401,
     )
 

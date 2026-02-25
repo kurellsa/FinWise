@@ -19,13 +19,17 @@ def _normalize(description: str) -> str:
     return d.strip()
 
 
-def detect_recurring(db: Session) -> list[dict]:
+def detect_recurring(db: Session, user_id: int) -> list[dict]:
     """
-    Returns list of detected recurring payments:
+    Returns list of detected recurring payments for the given user:
       {description, avg_amount, months_seen, estimated_monthly}
     Only expenses (amount < 0) are considered.
     """
-    latest = db.query(func.max(Transaction.date)).scalar()
+    latest = (
+        db.query(func.max(Transaction.date))
+        .filter(Transaction.user_id == user_id)
+        .scalar()
+    )
     if latest is None:
         return []
 
@@ -39,10 +43,11 @@ def detect_recurring(db: Session) -> list[dict]:
             m = 12
             y -= 1
 
-    # Fetch transactions from those 3 months (expenses only)
+    # Fetch transactions from those 3 months (expenses only, this user)
     txns = (
         db.query(Transaction)
         .filter(
+            Transaction.user_id == user_id,
             Transaction.amount < 0,
             Transaction.date >= date(months[-1][0], months[-1][1], 1),
         )
