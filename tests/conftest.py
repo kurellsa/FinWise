@@ -2,15 +2,23 @@
 Shared test fixtures.
 
 env vars must be set BEFORE any app module is imported because auth.py,
-ai_service.py, and database.py read them at module-load time.
+ai_service.py, database.py, and login.py read them at module-load time.
 """
 import os
 import sys
+import bcrypt
 
 # --- env vars set first, before any app imports ---
 os.environ["SECRET_KEY"] = "test-secret-key-finwise-pytest"
 os.environ["DATABASE_URL"] = "sqlite://"   # overridden via get_db; kept for safety
 os.environ["GROQ_API_KEY"] = "fake-groq-key-for-tests"
+
+# login.py reads APP_USERNAME / APP_PASSWORD_HASH at import time (module level)
+TEST_USERNAME = "testadmin"
+TEST_PASSWORD = "testpassword123"
+TEST_PASSWORD_HASH = bcrypt.hashpw(TEST_PASSWORD.encode(), bcrypt.gensalt(rounds=4)).decode()
+os.environ["APP_USERNAME"] = TEST_USERNAME
+os.environ["APP_PASSWORD_HASH"] = TEST_PASSWORD_HASH
 
 # pytest.ini sets pythonpath = app, but set it explicitly too for IDE compatibility
 _APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "app"))
