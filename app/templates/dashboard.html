@@ -9,6 +9,20 @@
 </div>
 {% endif %}
 
+{% if snapshot.alerts %}
+{% for alert in snapshot.alerts %}
+<div class="alert alert-warning alert-dismissible fade show d-flex align-items-center gap-2" role="alert">
+  <i class="bi bi-exclamation-triangle-fill text-warning fs-5"></i>
+  <div>
+    <strong>Large purchase detected:</strong> {{ alert.description }} &mdash;
+    <strong>${{ "{:,.2f}".format(alert.amount) }}</strong> on {{ alert.date }}
+    &nbsp;<a href="/chat" class="alert-link small">Ask AI if this is okay</a>
+  </div>
+  <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
+</div>
+{% endfor %}
+{% endif %}
+
 <!-- Upload + Data Summary Row -->
 <div class="row g-3 mb-4 align-items-stretch">
   <div class="col-md-5">
@@ -60,22 +74,32 @@
 
 <!-- Stat Cards -->
 <div class="row g-3 mb-4">
-  <div class="col-md-4">
+  <div class="col-6 col-md-3">
     <div class="card stat-card p-3 text-center">
       <div class="text-muted small mb-1">Income ({{ snapshot.latest_month.period }})</div>
-      <div class="display-6 income-color">${{ "{:,.0f}".format(snapshot.latest_month.income) }}</div>
+      <div class="fs-3 fw-bold income-color">${{ "{:,.0f}".format(snapshot.latest_month.income) }}</div>
     </div>
   </div>
-  <div class="col-md-4">
+  <div class="col-6 col-md-3">
     <div class="card stat-card p-3 text-center">
       <div class="text-muted small mb-1">Expenses ({{ snapshot.latest_month.period }})</div>
-      <div class="display-6 expense-color">-${{ "{:,.0f}".format(snapshot.latest_month.expenses) }}</div>
+      <div class="fs-3 fw-bold expense-color">-${{ "{:,.0f}".format(snapshot.latest_month.expenses) }}</div>
     </div>
   </div>
-  <div class="col-md-4">
+  <div class="col-6 col-md-3">
     <div class="card stat-card p-3 text-center">
       <div class="text-muted small mb-1">All-Time Expenses</div>
-      <div class="display-6 alltime-color">${{ "{:,.0f}".format(snapshot.all_time.total_expenses) }}</div>
+      <div class="fs-3 fw-bold alltime-color">${{ "{:,.0f}".format(snapshot.all_time.total_expenses) }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card stat-card p-3 text-center">
+      <div class="text-muted small mb-1">Safe to Spend</div>
+      {% set sts = snapshot.budget.safe_to_spend %}
+      <div class="fs-3 fw-bold {{ 'income-color' if sts > 0 else 'expense-color' }}">
+        {{ '-' if sts < 0 else '' }}${{ "{:,.0f}".format(sts | abs) }}
+      </div>
+      <div class="text-muted" style="font-size:0.65rem">after obligations</div>
     </div>
   </div>
 </div>

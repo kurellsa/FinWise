@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from database import engine, get_db, Base
 from models import Transaction
-from routers import upload, transactions, ai, reports, login
+from routers import upload, transactions, ai, reports, login, settings
 from services.context_builder import build_snapshot
 from auth import get_current_user
 
@@ -22,6 +22,7 @@ app.include_router(upload.router)
 app.include_router(transactions.router)
 app.include_router(ai.router)
 app.include_router(reports.router)
+app.include_router(settings.router)
 
 
 @app.get("/", response_class=HTMLResponse)

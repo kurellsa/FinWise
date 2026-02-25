@@ -2,15 +2,26 @@
 Builds an anonymized financial snapshot from the database for AI queries.
 Claude never sees raw PII — only aggregated numbers and generic labels.
 """
+import json
+from datetime import timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
-from datetime import date
-from models import Transaction
+from models import Transaction, UserProfile
+from services.recurring import detect_recurring
+
+
+def _get_profile(db: Session) -> UserProfile:
+    profile = db.get(UserProfile, 1)
+    if profile is None:
+        profile = UserProfile(id=1)
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+    return profile
 
 
 def build_snapshot(db: Session) -> dict:
     # Use the most recent month present in the data, not today's date.
-    # This ensures historical CSVs work correctly.
     latest = db.query(func.max(Transaction.date)).scalar()
     if latest is None:
         return {"error": "No transactions loaded yet.", "total_transactions_loaded": 0}
@@ -50,8 +61,9 @@ def build_snapshot(db: Session) -> dict:
     for i, (acct, total) in enumerate(rows):
         label = f"Account-{chr(65 + i)}"
         account_balances[label] = round(total, 2)
+    total_balance = round(sum(account_balances.values()), 2)
 
-    # Date range of loaded data
+    # Date range + totals
     earliest = db.query(func.min(Transaction.date)).scalar()
     total_txns = db.query(func.count(Transaction.id)).scalar()
 
@@ -72,36 +84,93 @@ def build_snapshot(db: Session) -> dict:
         for t in recent_txns
     ]
 
-    # Data-driven smart insights (no AI call needed for dashboard)
+    # --- Phase 2: Recurring payments ---
+    recurring = detect_recurring(db)
+    recurring_monthly_total = round(sum(r["estimated_monthly"] for r in recurring), 2)
+    recurring_descs = {r["description"] for r in recurring}
+
+    # --- Phase 2: User profile settings ---
+    profile = _get_profile(db)
+    emergency_fund_target = profile.emergency_fund_target
+    monthly_buffer = profile.monthly_buffer
+    alert_threshold = profile.alert_threshold
+    debts = json.loads(profile.outstanding_debts or "[]")
+
+    # --- Phase 2: Safe to spend ---
+    # Estimate how much of recurring has already been paid this month
+    spent_recurring_this_month = sum(
+        abs(t.amount) for t in month_txns
+        if t.amount < 0 and any(rd in t.description.upper() for rd in recurring_descs)
+    )
+    remaining_recurring = max(0.0, recurring_monthly_total - spent_recurring_this_month)
+    safe_to_spend = round(
+        total_balance - emergency_fund_target - monthly_buffer - remaining_recurring, 2
+    )
+
+    # --- Phase 2: Monthly surplus ---
+    monthly_surplus = round(month_income + month_expenses, 2)   # net of latest month
+
+    # --- Phase 2: Large adhoc purchase alerts (last 14 days of data) ---
+    alert_cutoff = latest - timedelta(days=14)
+    alerts = []
+    for t in recent_txns:
+        if t.date < alert_cutoff:
+            break
+        if t.amount >= -alert_threshold:
+            continue
+        if any(rd in t.description.upper() for rd in recurring_descs):
+            continue   # known recurring — skip
+        alerts.append({
+            "date": str(t.date),
+            "description": t.description,
+            "amount": round(abs(t.amount), 2),
+        })
+
+    # --- Smart insights ---
     net = round(month_income + month_expenses, 2)
     period = latest.strftime("%B %Y")
     insights: list[str] = []
     if all_category_totals:
         top_cat = max(all_category_totals, key=all_category_totals.get)
-        insights.append(f"Top spending category: {top_cat} (${all_category_totals[top_cat]:,.0f} all-time)")
+        insights.append(f"Top spending: {top_cat} (${all_category_totals[top_cat]:,.0f} all-time)")
     if net >= 0:
         insights.append(f"Saving ${net:,.0f} in {period}")
     else:
         insights.append(f"Over budget by ${abs(net):,.0f} in {period}")
-    insights.append(f"{total_txns} transactions across {len(account_balances)} account(s)")
-    if all_category_totals:
-        insights.append(f"Spending tracked in {len(all_category_totals)} categories")
+    if safe_to_spend > 0:
+        insights.append(f"Safe to spend: ${safe_to_spend:,.0f} after obligations")
+    else:
+        insights.append(f"Budget tight — ${abs(safe_to_spend):,.0f} short after obligations")
+    if recurring:
+        insights.append(f"{len(recurring)} recurring payments (${recurring_monthly_total:,.0f}/mo)")
 
     return {
         "data_range": {"from": str(earliest), "to": str(latest)},
         "accounts": account_balances,
+        "total_balance": total_balance,
         "insights": insights,
         "latest_month": {
-            "period": f"{latest.strftime('%B %Y')}",
+            "period": period,
             "income": round(month_income, 2),
             "expenses": round(abs(month_expenses), 2),
-            "net": round(month_income + month_expenses, 2),
+            "net": net,
             "by_category": {k: round(v, 2) for k, v in sorted(category_totals.items(), key=lambda x: -x[1])},
         },
         "all_time": {
             "total_expenses": round(sum(all_category_totals.values()), 2),
             "by_category": {k: round(v, 2) for k, v in sorted(all_category_totals.items(), key=lambda x: -x[1])},
         },
+        "budget": {
+            "safe_to_spend": safe_to_spend,
+            "emergency_fund_target": emergency_fund_target,
+            "monthly_buffer": monthly_buffer,
+            "recurring_monthly_total": recurring_monthly_total,
+            "monthly_surplus": monthly_surplus,
+            "alert_threshold": alert_threshold,
+        },
+        "recurring": recurring[:10],
+        "debts": debts,
+        "alerts": alerts,
         "transactions": transactions_list,
         "total_transactions_loaded": total_txns,
     }

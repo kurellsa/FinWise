@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+<div class="col-lg-7">
+
+{% if request.query_params.get('saved') %}
+<div class="alert alert-success alert-dismissible fade show" role="alert">
+  Settings saved.
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+<form method="post" action="/settings">
+
+  <!-- Budget Settings -->
+  <div class="card p-4 mb-3">
+    <h5 class="mb-4"><i class="bi bi-sliders text-primary"></i> Budget Settings</h5>
+
+    <div class="mb-3">
+      <label class="form-label">Large Purchase Alert Threshold ($)</label>
+      <input type="number" name="alert_threshold" class="form-control"
+             value="{{ profile.alert_threshold }}" min="0" step="50">
+      <div class="form-text text-muted">Alert when an adhoc purchase exceeds this amount.</div>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Emergency Fund Target ($)</label>
+      <input type="number" name="emergency_fund_target" class="form-control"
+             value="{{ profile.emergency_fund_target }}" min="0" step="100">
+      <div class="form-text text-muted">Amount to keep untouched at all times.</div>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Monthly Safety Buffer ($)</label>
+      <input type="number" name="monthly_buffer" class="form-control"
+             value="{{ profile.monthly_buffer }}" min="0" step="50">
+      <div class="form-text text-muted">
+        Extra cushion on top of emergency fund before calculating safe-to-spend.
+      </div>
+    </div>
+  </div>
+
+  <!-- Outstanding Debts -->
+  <div class="card p-4 mb-3">
+    <h5 class="mb-1"><i class="bi bi-bank text-warning"></i> Outstanding Debts</h5>
+    <p class="text-muted small mb-4">Used by the AI to prioritise payoff advice.</p>
+
+    <div id="debtList">
+      {% for debt in debts %}
+      <div class="row g-2 mb-2 debt-row">
+        <div class="col-5">
+          <input type="text" name="debt_names" class="form-control form-control-sm"
+                 placeholder="e.g. Car Loan" value="{{ debt.name }}">
+        </div>
+        <div class="col-3">
+          <input type="number" name="debt_balances" class="form-control form-control-sm"
+                 placeholder="Balance $" value="{{ debt.balance }}" min="0" step="100">
+        </div>
+        <div class="col-3">
+          <input type="number" name="debt_rates" class="form-control form-control-sm"
+                 placeholder="Rate %" value="{{ debt.rate }}" min="0" step="0.1">
+        </div>
+        <div class="col-1 d-flex align-items-center">
+          <button type="button" class="btn btn-sm btn-outline-danger remove-debt">
+            <i class="bi bi-x"></i>
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <button type="button" id="addDebt" class="btn btn-sm btn-outline-secondary mt-2">
+      <i class="bi bi-plus"></i> Add Debt
+    </button>
+    <div class="text-muted small mt-2">Columns: Name &nbsp;|&nbsp; Balance ($) &nbsp;|&nbsp; Interest Rate (%)</div>
+  </div>
+
+  <button type="submit" class="btn btn-primary w-100">Save Settings</button>
+</form>
+
+</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('addDebt').addEventListener('click', () => {
+  const row = document.createElement('div');
+  row.className = 'row g-2 mb-2 debt-row';
+  row.innerHTML = `
+    <div class="col-5"><input type="text" name="debt_names" class="form-control form-control-sm" placeholder="e.g. Mortgage"></div>
+    <div class="col-3"><input type="number" name="debt_balances" class="form-control form-control-sm" placeholder="Balance $" min="0" step="100"></div>
+    <div class="col-3"><input type="number" name="debt_rates" class="form-control form-control-sm" placeholder="Rate %" min="0" step="0.1"></div>
+    <div class="col-1 d-flex align-items-center">
+      <button type="button" class="btn btn-sm btn-outline-danger remove-debt"><i class="bi bi-x"></i></button>
+    </div>`;
+  document.getElementById('debtList').appendChild(row);
+});
+
+document.getElementById('debtList').addEventListener('click', e => {
+  if (e.target.closest('.remove-debt')) {
+    e.target.closest('.debt-row').remove();
+  }
+});
+</script>
+{% endblock %}
